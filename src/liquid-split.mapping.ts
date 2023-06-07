@@ -1,4 +1,4 @@
-import { Address, BigInt, log } from "@graphprotocol/graph-ts";
+import { Address, BigInt, log, store } from "@graphprotocol/graph-ts";
 import { CreateLS1155, CreateLS1155Clone } from "../generated/LiquidSplitFactory/LiquidSplitFactory";
 import {
   CreateLiquidSplit,
@@ -22,7 +22,7 @@ import {
   LiquidSplitNFTAddedEvent,
   LiquidSplitNFTRemovedEvent,
 } from "../generated/schema";
-import { ADDED_PREFIX, createJointId, createTransactionIfMissing, createUserIfMissing, getLiquidSplit, PERCENTAGE_SCALE, REMOVED_PREFIX, ZERO_ADDRESS } from "./helpers";
+import { ADDED_PREFIX, createJointId, createTransactionIfMissing, createUserIfMissing, getLiquidSplit, PERCENTAGE_SCALE, REMOVED_PREFIX, ZERO, ZERO_ADDRESS } from "./helpers";
 
 const FACTORY_GENERATED_TOTAL_SUPPLY = BigInt.fromI64(1e3 as i64);
 const CHAOS_MULTIPLIER = BigInt.fromI64(1e6 as i64);
@@ -289,7 +289,7 @@ function getHolder(accountId: string, liquidSplitId: string, blockNumber: i32, t
     holder = new Holder(holderId);
     holder.liquidSplit = liquidSplitId;
     holder.account = accountId;
-    holder.ownership = BigInt.fromI64(0);
+    holder.ownership = ZERO;
   }
   
   return holder;
@@ -306,14 +306,33 @@ function updateHolderOwnershipNonFactoryLiquidSplit(
   let liquidSplitId = liquidSplitAddress.toHexString();
 
   let fromAddressString = fromAddress.toHexString();
-  if (fromAddressString != ZERO_ADDRESS) {
+  let toAddressString = toAddress.toHexString();
+
+  if (fromAddressString == ZERO_ADDRESS || toAddressString == ZERO_ADDRESS) {
+    let holders = store.loadRelated('LiquidSplit', liquidSplitId, 'holders');
+    for (let i = 0; i < holders.length; i++) {
+      let holderAddress = Address.fromString(holders[i].getString('account'));
+      let holder = Holder.load(holders[i].getString('id')) as Holder;
+      holder.ownership = liquidSplitContract.scaledPercentBalanceOf(holderAddress);
+      holder.save();
+    }
+
+    if (fromAddressString != ZERO_ADDRESS) {
+      let fromHolder = getHolder(fromAddressString, liquidSplitId, blockNumber, timestamp);
+      fromHolder.ownership = liquidSplitContract.scaledPercentBalanceOf(fromAddress);
+      fromHolder.save();
+    }
+  
+    if (toAddressString != ZERO_ADDRESS) {
+      let toHolder = getHolder(toAddressString, liquidSplitId, blockNumber, timestamp);
+      toHolder.ownership = liquidSplitContract.scaledPercentBalanceOf(toAddress);
+      toHolder.save();
+    }
+  } else {
     let fromHolder = getHolder(fromAddressString, liquidSplitId, blockNumber, timestamp);
     fromHolder.ownership = liquidSplitContract.scaledPercentBalanceOf(fromAddress);
     fromHolder.save();
-  }
-
-  let toAddressString = toAddress.toHexString();
-  if (toAddressString != ZERO_ADDRESS) {
+  
     let toHolder = getHolder(toAddressString, liquidSplitId, blockNumber, timestamp);
     toHolder.ownership = liquidSplitContract.scaledPercentBalanceOf(toAddress);
     toHolder.save();
